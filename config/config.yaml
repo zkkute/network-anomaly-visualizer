@@ -1,0 +1,19 @@
+# config/config.yaml
+dataset:
+  path: data/raw/cic-ids-2017
+  pcap_files:
+    - Friday-WorkingHours.pcap
+    - Friday-WorkingHours.csv        # если есть CSV — тоже укажи
+
+features:
+  window_size: 5
+  grid_size: 16
+
+ml:
+  threshold_red: 0.8
+  threshold_yellow: 0.5
+  contamination: 0.05
+
+replay:
+  speed: 1.0
+  batch_interval: 5
