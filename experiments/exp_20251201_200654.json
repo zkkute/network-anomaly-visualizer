@@ -1,0 +1,9 @@
+{
+  "timestamp": "2025-12-01T20:06:54.726436",
+  "dataset": "my_traffic_features.csv",
+  "total_flows": 170366,
+  "attacks_total": 2180,
+  "attacks_in_test": 0,
+  "detected": 174,
+  "f1_score": null
+}

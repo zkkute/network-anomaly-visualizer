@@ -1,3 +1,4 @@
+# scr/preprocessing/flow_aggregator.py
 def aggregate_flows(df):
     """Агрегация по 5-tuple"""
     key = ['src_ip', 'dst_ip', 'src_port', 'dst_port', 'protocol']
