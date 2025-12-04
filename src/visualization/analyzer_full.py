@@ -1,4 +1,4 @@
-# src/visualization/app.py
+# src/visualization/analyzer_full.py
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -43,25 +43,34 @@ def load_models():
 
 xgb_model, iso_model, scaler, feature_list = load_models()
 
-# ====================== САЙДБАР ======================
+# ====================== САЙДБАР + АВТО-ЗАГРУЗКА ======================
 st.sidebar.header("Загрузка данных")
 uploaded_file = st.sidebar.file_uploader("Выбери CSV с потоками", type=["csv"])
 
+# ИНИЦИАЛИЗИРУЕМ df_raw = None
+df_raw = None
+
+# 1. Ручная загрузка
 if uploaded_file is not None:
     df_raw = pd.read_csv(uploaded_file)
     st.sidebar.success(f"Загружено {len(df_raw):,} строк")
-else:
-    df_raw = None
-    st.sidebar.info("Загрузи файл или используй демо")
 
-if st.sidebar.button("Демо: смешанный трафик (DDoS + PortScan + Exfiltration)"):
+# 2. Кнопка демо
+elif st.sidebar.button("Демо: смешанный трафик"):
     demo_path = Path("data/demo/demo_mixed_traffic.csv")
     if demo_path.exists():
         df_raw = pd.read_csv(demo_path)
         st.sidebar.success("Демо загружено!")
     else:
-        st.sidebar.error("Создай папку data/demo/ и положи туда любой CSV")
+        st.sidebar.error("Файл демо не найден")
 
+# 3. АВТО-ЗАГРУЗКА БОЛЬШОГО ДАТАСЕТА (главное!)
+elif Path("data/processed/my_traffic_features.csv").exists():
+    df_raw = pd.read_csv("data/processed/my_traffic_features.csv")
+    st.sidebar.success("Автозагрузка: DDoS-датасет (225k потоков)")
+
+else:
+    st.sidebar.info("Загрузи файл или используй демо")
 # ====================== ПРЕДСКАЗАНИЯ ======================
 if df_raw is not None:
     with st.spinner("Анализ трафика и предсказание..."):
@@ -82,7 +91,7 @@ if df_raw is not None:
         hybrid_score = np.maximum(xgb_proba, iso_score)
 
         df["anomaly_score"] = hybrid_score
-        df["prediction"] = (hybrid_score >= 0.80).astype(int)
+        df["prediction"] = (hybrid_score >= 0.5).astype(int)
         df["attack_type"] = df["prediction"].map({0: "Normal", 1: "Attack"})
 
     st.success(f"Готово! Обнаружено атак: {df['prediction'].sum():,}")
@@ -93,75 +102,73 @@ if df_raw is not None:
     with col1:
         st.subheader("Аномалии во времени — общая картина сети")
 
-        # Определяем колонку времени
-        if "timestamp_start" in df.columns:
-            time_col = "timestamp_start"
-            df_plot = df.copy()
-            df_plot[time_col] = pd.to_datetime(df_plot[time_col], unit='s', errors='coerce')
-        elif "timestamp" in df.columns:
+        # Время
+        time_col = "timestamp_start" if "timestamp_start" in df.columns else "timestamp"
+        if time_col not in df.columns:
+            df["timestamp"] = range(len(df))
             time_col = "timestamp"
-            df_plot = df.copy()
-            df_plot[time_col] = pd.to_datetime(df_plot[time_col], unit='s', errors='coerce')
+
+        df_plot = df.copy()
+        df_plot["time"] = pd.to_datetime(df_plot[time_col], unit='s', errors='coerce')
+        df_plot = df_plot.sort_values("time")
+
+        fig = go.Figure()
+
+        # 1. СНАЧАЛА — ВСЕ ТОЧКИ (серый фон)
+        fig.add_trace(go.Scattergl(
+            x=df_plot["time"],
+            y=df_plot["anomaly_score"],
+            mode='markers',
+            marker=dict(color='lightgray', size=4, opacity=0.4),
+            name='Все потоки',
+            hoverinfo='skip'
+        ))
+
+        # 2. ПОТОМ — АТАКИ ПОВЕРХ ВСЕГО (красные ракеты, всегда видно!)
+        attack = df_plot[df_plot["anomaly_score"] >= 0.80]
+        if len(attack) > 0:
+            fig.add_trace(go.Scattergl(
+                x=attack["time"],
+                y=attack["anomaly_score"],
+                mode='markers',
+                name=f'АТАКА! ({len(attack):,} шт.)',
+                marker=dict(
+                    color='#ff0000',
+                    size=18,
+                    symbol='triangle-up',
+                    line=dict(color='darkred', width=4),
+                    opacity=1.0
+                ),
+                text=[f"<b>DDoS АТАКА</b><br>"
+                      f"IP: {r.get('src_ip', '?')} → {r.get('dst_ip', '?')}<br>"
+                      f"pps: {r.get('pps', 0):,.0f}<br>"
+                      f"Score: {r['anomaly_score']:.4f}"
+                      for _, r in attack.iterrows()],
+                hovertemplate="%{text}<extra></extra>"
+            ))
         else:
-            time_col = df.index
-            df_plot = df.copy()
-            df_plot["Время"] = df_plot.index
+            st.warning("Атак не найдено (проверь порог)")
 
-        # Основной график — как на твоём рисунке!
-        fig_time = go.Figure()
+        # Порог
+        fig.add_hline(y=0.80, line=dict(color="red", width=3, dash="dash"),
+                      annotation_text=" Порог 0.80", annotation_position="top right")
 
-        # Нормальный трафик — синий, маленький, плотный внизу
-        normal = df_plot[df_plot["prediction"] == 0]
-        fig_time.add_trace(go.Scatter(
-            x=normal[time_col],
-            y=normal["anomaly_score"],
-            mode='markers',
-            name='Нормальный трафик',
-            marker=dict(
-                color='#2E91E5',
-                size=np.log1p(normal["bps"]) * 2,  # размер по интенсивности
-                opacity=0.6,
-                line=dict(width=0)
-            ),
-            hovertemplate="<b>Нормальный</b><br>IP: %{customdata[0]} → %{customdata[1]}<br>bps: %{customdata[2]:,.0f}<extra></extra>",
-            customdata=normal[["src_ip", "dst_ip", "bps"]].values if "src_ip" in normal.columns else normal[
-                ["bps"]].values
-        ))
-
-        # АТАКИ — яркие красные всплески вверх!
-        attack = df_plot[df_plot["prediction"] == 1]
-        fig_time.add_trace(go.Scatter(
-            x=attack[time_col],
-            y=attack["anomaly_score"],
-            mode='markers',
-            name='АТАКА',
-            marker=dict(
-                color='#E15F99',
-                size=np.log1p(attack["bps"]) * 4,  # атаки крупнее
-                opacity=0.95,
-                line=dict(width=1, color='red')
-            ),
-            hovertemplate="<b>АТАКА!</b><br>%{customdata[0]} → %{customdata[1]:<br>Порт: %{customdata[2]}<br>bps: %{customdata[3]:,.0f}<br>pps: %{customdata[4]:,.0f}<extra></extra>",
-            customdata=attack[["src_ip", "dst_ip", "dst_port", "bps", "pps"]].values if "src_ip" in attack.columns else
-            attack[["bps", "pps"]].values
-        ))
-
-        fig_time.update_layout(
-            title="Гибридный скор аномалий во времени (именно как на твоём рисунке)",
+        fig.update_layout(
+            title="Гибридный скор аномалий — DDoS-атака в реальном времени",
             xaxis_title="Время",
-            yaxis_title="Anomaly Score (0–1)",
-            height=650,
-            hovermode="closest",
-            legend=dict(y=0.99, x=0.01, bgcolor="rgba(255,255,255,0.8)"),
-            plot_bgcolor="white",
-            paper_bgcolor="white"
+            yaxis_title="Anomaly Score",
+            yaxis=dict(range=[0, 1.05]),
+            height=720,
+            plot_bgcolor='white',
+            paper_bgcolor='white',
+            hovermode="x unified",
+            legend=dict(orientation="h", y=1.02, x=1, xanchor="right")
         )
 
-        # Горизонтальная линия порога
-        fig_time.add_hline(y=0.80, line_dash="dash", line_color="red", annotation_text=" Порог обнаружения",
-                           annotation_position="top right")
+        st.plotly_chart(fig, use_container_width=True)
 
-        st.plotly_chart(fig_time, use_container_width=True)
+        # Добавим статистику под графиком
+        st.success(f"Обнаружено атак: **{len(attack):,}** из {len(df_plot):,} потоков")
 
     with col2:
         st.subheader("Статистика")
@@ -298,12 +305,7 @@ if df_raw is not None:
     fig_imp.update_layout(height=600)
     st.plotly_chart(fig_imp, use_container_width=True)
 
-    # Таблица атак
-    st.subheader("Последние атаки")
-    cols_to_show = ["src_ip", "dst_ip", "dst_port", "bps", "port_entropy", "anomaly_score"]
-    cols_to_show = [c for c in cols_to_show if c in df.columns]
-    attacks = df[df["prediction"] == 1][cols_to_show + ["attack_type"]].sort_values("anomaly_score", ascending=False)
-    st.dataframe(attacks.head(50), use_container_width=True)
+
 
     # Скачать
     csv = df.to_csv(index=False).encode()

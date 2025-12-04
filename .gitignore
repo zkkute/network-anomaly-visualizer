@@ -1,5 +1,63 @@
-data/
-models/
+# Python
 __pycache__/
-*.pkl
-demo.mp4
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.mypy_cache/
+.pytest_cache/
+.hypothesis/
+
+# Виртуальное окружение
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Модели и данные (не пушим тяжёлые файлы)
+models/*.pkl
+models/*.h5
+models/*.joblib
+data/
+!data/.gitkeep
+*.csv
+*.parquet
+*.feather
+*.hdf5
+
+# Логи и временные файлы
+logs/
+temp/
+tmp/
+*.tmp
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints
+
+# Наши live-данные
+data/live/
+!data/live/.gitkeep
+
+# Конфиги с секретами (если будут)
+config/*.yaml
+!config/config.example.yaml

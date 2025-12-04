@@ -1,4 +1,4 @@
-# scr/decision
+# scr/decision/alert_generator.py
 import pandas as pd
 import numpy as np
 from src.ml.inference import get_hybrid_score  # Создадим ниже

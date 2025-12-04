@@ -17,3 +17,7 @@ ml:
 replay:
   speed: 1.0
   batch_interval: 5
+
+live:
+  interface: "\\Device\\NPF_{02F5B6DA-5AE0-4489-88EE-5CADB4E470DD}"  # или None для авто
+  interval: 2              # каждые 2 секунды — анализ

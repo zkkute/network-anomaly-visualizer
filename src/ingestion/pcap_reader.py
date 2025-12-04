@@ -1,4 +1,4 @@
-# scr/ingestion
+# scr/ingestion/pcap_reader.py
 import pyshark
 import pandas as pd
 import numpy as np
