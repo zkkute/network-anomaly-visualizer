@@ -1,161 +1,166 @@
-# src/Charts/live_dashboard.py
-# Живая панель NDR — работает сразу, без ошибок
-
+import json
 import pandas as pd
+from dash import Dash, dcc, html
+from dash.dependencies import Input, Output
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import time
-from pathlib import Path
-import warnings
-warnings.filterwarnings("ignore")
 
-FLOWS_FILE = Path("data/live/flows_live.csv")
-ALERTS_FILE = Path("data/live/alerts.json")
+# ----------------------------
+# Paths to data
+# ----------------------------
+FLOWS_CSV = r"C:/Users/Zlata/Desktop/network-anomaly-visualizer/data/live/flows_live.csv"
+ALERTS_JSON = r"C:/Users/Zlata/Desktop/network-anomaly-visualizer/data/live/alerts.json"
 
-print("NDR Live Dashboard запущен")
-print("Ожидание данных от realtime_engine...")
+# ----------------------------
+# Dash App Initialization
+# ----------------------------
+app = Dash(__name__)
+server = app.server
 
-history = []  # для графиков по времени
+app.layout = html.Div(
+    style={"backgroundColor": "#0E1117", "color": "white", "padding": "15px"},
+    children=[
+        html.H1("Network Monitoring Dashboard (Real-Time)", style={"textAlign": "center"}),
 
-while True:
+        dcc.Interval(id="update-timer", interval=2000, n_intervals=0),
+
+        dcc.Graph(id="live-dashboard-graph", style={"height": "94vh"})
+    ]
+)
+
+# ----------------------------
+# Callback to update dashboard
+# ----------------------------
+@app.callback(
+    Output("live-dashboard-graph", "figure"),
+    Input("update-timer", "n_intervals")
+)
+def update_dashboard(_):
+
+    # Load flows data
     try:
-        if not FLOWS_FILE.exists():
-            print("flows_live.csv не найден — запусти realtime_engine")
-            time.sleep(3)
-            continue
+        df = pd.read_csv(FLOWS_CSV)
+    except Exception:
+        df = pd.DataFrame()
 
-        df = pd.read_csv(FLOWS_FILE)
+    # Load alerts
+    try:
+        with open(ALERTS_JSON, "r") as f:
+            alerts = json.load(f)
+    except:
+        alerts = []
 
-        alerts = pd.DataFrame()
-        if ALERTS_FILE.exists():
-            try:
-                alerts = pd.read_json(ALERTS_FILE)
-            except:
-                pass
+    # Replace missing score column if needed
+    if "score" not in df.columns:
+        df["score"] = 0
 
-        current_time = pd.Timestamp.now().strftime("%H:%M:%S")
-        total_flows = len(df)
-        avg_score = df['score'].mean() if 'score' in df.columns and not df.empty else 0
-        max_score = df['score'].max() if 'score' in df.columns and not df.empty else 0
+    # Sort by index (time)
+    if not df.empty:
+        df["index"] = df.index
 
-        # Топ-10 IP по аномальности
-        top_ips = (df.nlargest(10, 'score')[['src_ip', 'score', 'pps']]
-                   if 'score' in df.columns and not df.empty else pd.DataFrame())
+    # Prepare basic aggregations
+    top_src_ip = (
+        df.groupby("src_ip")["score"]
+        .mean()
+        .sort_values(ascending=False)
+        .head(10)
+        if not df.empty else pd.Series()
+    )
 
-        # История
-        history.append({'time': current_time, 'avg': avg_score, 'max': max_score, 'alerts': len(alerts)})
-        if len(history) > 60:
-            history = history[-60:]
-        hist = pd.DataFrame(history)
+    top_pps = (
+        df.groupby("src_ip")["pps"]
+        .mean()
+        .sort_values(ascending=False)
+        .head(10)
+        if not df.empty else pd.Series()
+    )
 
-        # === Дашборд ===
-        fig = make_subplots(
-            rows=3, cols=2,
-            subplot_titles=(
-                "Динамика аномальности", "Топ-10 подозрительных IP",
-                "Алерты по подсетям", "Средний anomaly score",
-                "Распределение score", "PPS у самых аномальных"
-            ),
-            specs=[
-                [{}, {"type": "bar"}],
-                [{"type": "table"}, {"type": "indicator"}],
-                [{"type": "histogram"}, {"type": "bar"}]
-            ]
-        )
+    # Build dashboard layout
+    fig = make_subplots(
+        rows=3,
+        cols=2,
+        specs=[
+            [{"type": "xy"}, {"type": "xy"}],
+            [{"type": "table"}, {"type": "indicator"}],
+            [{"type": "xy"}, {"type": "xy"}],
+        ],
+        subplot_titles=[
+            "Rolling Avg & Max Score (by Flow Index)",
+            "Top-10 Source IPs by Score",
+            "Latest Alerts",
+            "Mean Score (Gauge)",
+            "Score Histogram",
+            "Top-10 PPS by IP"
+        ],
+    )
 
-        # 1. Динамика
-        if len(hist) > 1:
-            fig.add_trace(go.Scatter(x=hist['time'], y=hist['avg'],
-                                     mode='lines+markers', name='Средний score',
-                                     line=dict(color='orange')), row=1, col=1)
-            fig.add_trace(go.Scatter(x=hist['time'], y=hist['max'],
-                                     mode='lines+markers', name='Максимальный score',
-                                     line=dict(color='red')), row=1, col=1)
+    # 1. Rolling score over time
+    if not df.empty:
+        rolling_avg = df["score"].rolling(20).mean()
+        rolling_max = df["score"].rolling(20).max()
 
-        # 2. Топ IP
-        if not top_ips.empty:
-            fig.add_trace(go.Bar(
-                x=top_ips['src_ip'].astype(str),
-                y=top_ips['score'],
-                text=top_ips['score'].round(3),
-                textposition='outside',
-                marker_color='crimson',
-                name='Anomaly Score'
-            ), row=1, col=2)
+        fig.add_trace(go.Scatter(
+            x=df["index"], y=rolling_avg, mode="lines", name="Rolling Avg Score"
+        ), row=1, col=1)
 
-        # 3. Таблица алертов
-        if not alerts.empty:
-            top_alerts = alerts.head(10)
-            fig.add_trace(go.Table(
-                header=dict(values=["Подсеть", "Score", "PPS", "IP-ов"], font=dict(size=12), fill_color='grey'),
-                cells=dict(
-                    values=[
-                        top_alerts['subnet'],
-                        top_alerts['score'].round(3),
-                        top_alerts['pps'].round(1),
-                        top_alerts['count']
-                    ],
-                    fill_color=[
-                        ['lightgreen' if c == 'green' else 'yellow' if c == 'yellow' else 'lightcoral'
-                         for c in top_alerts['color']]
-                    ],
-                    font=dict(size=11)
-                )
-            ), row=2, col=1)
+        fig.add_trace(go.Scatter(
+            x=df["index"], y=rolling_max, mode="lines", name="Rolling Max Score"
+        ), row=1, col=1)
 
-        # 4. Индикатор среднего score
-        fig.add_trace(go.Indicator(
-            mode="gauge+number+delta",
-            value=avg_score,
-            domain={'x': [0, 1], 'y': [0, 1]},
-            title={'text': "Средний score"},
-            delta={'reference': 0.3},
-            gauge={
-                'axis': {'range': [0, 1]},
-                'bar': {'color': "darkblue"},
-                'steps': [
-                    {'range': [0, 0.4], 'color': "lightgreen"},
-                    {'range': [0.4, 0.8], 'color': "yellow"},
-                    {'range': [0.8, 1], 'color': "red"}
-                ],
-                'threshold': {
-                    'line': {'color': "red", 'width': 4},
-                    'thickness': 0.75,
-                    'value': 0.8
-                }
-            }
-        ), row=2, col=2)
+    # 2. Top anomalous source IPs
+    fig.add_trace(go.Bar(
+        x=top_src_ip.index, y=top_src_ip.values
+    ), row=1, col=2)
 
-        # 5. Гистограмма
-        if 'score' in df.columns and not df.empty():
-            fig.add_trace(go.Histogram(
-                x=df['score'],
-                nbinsx=40,
-                name="Score",
-                marker_color='cyan'
-            ), row=3, col=1)
+    # 3. Alerts table
+    fig.add_trace(
+        go.Table(
+            header=dict(values=["Timestamp", "IP", "Score"], fill_color="#202331"),
+            cells=dict(values=[
+                [a.get("timestamp", "") for a in alerts],
+                [a.get("ip", "") for a in alerts],
+                [a.get("score", "") for a in alerts],
+            ])
+        ),
+        row=2, col=1
+    )
 
-        # 6. PPS топ IP
-        if not top_ips.empty:
-            fig.add_trace(go.Bar(
-                x=top_ips['src_ip'].astype(str),
-                y=top_ips['pps'],
-                name="PPS",
-                marker_color='limegreen'
-            ), row=3, col=2)
+    # 4. Score gauge
+    mean_score = df["score"].mean() if not df.empty else 0
+    fig.add_trace(
+        go.Indicator(
+            mode="gauge+number",
+            value=mean_score,
+            gauge={"axis": {"range": [0, 10]}},
+            title={"text": "Mean Score"},
+        ),
+        row=2, col=2
+    )
 
-        fig.update_layout(
-            height=1100,
-            title_text=f"NDR LIVE DASHBOARD | {current_time} | Потоков: {total_flows} | Алертов: {len(alerts)}",
-            template="plotly_dark",
-            showlegend=False
-        )
+    # 5. Score histogram
+    if not df.empty:
+        fig.add_trace(go.Histogram(
+            x=df["score"], nbinsx=30
+        ), row=3, col=1)
 
-        fig.show()
+    # 6. Top PPS
+    fig.add_trace(go.Bar(
+        x=top_pps.index, y=top_pps.values
+    ), row=3, col=2)
 
-        print(f"Обновлено {current_time} | Score: {avg_score:.3f} | Макс: {max_score:.3f} | Алертов: {len(alerts)}")
+    fig.update_layout(
+        height=900,
+        template="plotly_dark",
+        showlegend=False,
+        margin=dict(l=40, r=40, t=80, b=40)
+    )
 
-    except Exception as e:
-        print(f"Ошибка: {e}")
+    return fig
 
-    time.sleep(2)
+
+# ----------------------------
+# Run server
+# ----------------------------
+if __name__ == "__main__":
+    print("Starting Dash server on http://127.0.0.1:8050 ...")
+    app.run(debug=False)
