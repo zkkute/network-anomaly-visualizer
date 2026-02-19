@@ -1,4 +1,4 @@
-# src/visualization/demo_heatmap.py
+# src/visualization/demo_heatmap_live.py
 import streamlit as st
 import pandas as pd
 import numpy as np

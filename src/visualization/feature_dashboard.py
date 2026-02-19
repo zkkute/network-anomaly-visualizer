@@ -1,3 +1,4 @@
+# src/visualization/feature_dashboard.py
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -30,7 +31,7 @@ def load_data(path="data/processed/my_traffic_features.csv"):
     return pd.read_csv(path)
 
 df = load_data()
-st.title("🔍 Визуализация сетевых признаков (Feature Explorer + PDF)")
+st.title("Визуализация сетевых признаков (Feature Explorer + PDF)")
 
 st.write(f"Загружено строк: **{len(df):,}**")
 st.write(f"Доступные признаки: **{len(df.columns)-1}**")
@@ -41,7 +42,7 @@ feature_cols = [c for c in df.columns if c != label_col]
 # --------------------------
 # SIDEBAR / UI
 # --------------------------
-st.sidebar.header("⚙️ Параметры визуализации")
+st.sidebar.header("Параметры визуализации")
 mode = st.sidebar.selectbox(
     "Тип анализа:",
     [
@@ -63,7 +64,7 @@ feature_z = st.sidebar.selectbox("Признак Z (3D)", feature_cols, index=2)
 # RENDER PLOTS (streamlit)
 # --------------------------
 if mode == "Histogram":
-    st.subheader(f"📊 Histogram — {feature_x}")
+    st.subheader(f"Histogram — {feature_x}")
     fig, ax = plt.subplots()
     ax.hist(df[feature_x].dropna(), bins=50)
     ax.set_xlabel(feature_x)
@@ -71,7 +72,7 @@ if mode == "Histogram":
     st.pyplot(fig)
 
 elif mode == "Scatter 2D":
-    st.subheader(f"🔵 Scatter Plot — {feature_x} vs {feature_y}")
+    st.subheader(f"Scatter Plot — {feature_x} vs {feature_y}")
     fig, ax = plt.subplots()
     ax.scatter(df[feature_x], df[feature_y], alpha=0.3, s=6)
     ax.set_xlabel(feature_x)
@@ -79,7 +80,7 @@ elif mode == "Scatter 2D":
     st.pyplot(fig)
 
 elif mode == "Scatter 3D":
-    st.subheader(f"🔵 Scatter 3D — {feature_x}, {feature_y}, {feature_z}")
+    st.subheader(f"Scatter 3D — {feature_x}, {feature_y}, {feature_z}")
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
     ax.scatter(df[feature_x], df[feature_y], df[feature_z], alpha=0.2, s=4)
@@ -89,13 +90,13 @@ elif mode == "Scatter 3D":
     st.pyplot(fig)
 
 elif mode == "Boxplot":
-    st.subheader(f"📦 Boxplot — {feature_x}, {feature_y}, {feature_z}")
+    st.subheader(f"Boxplot — {feature_x}, {feature_y}, {feature_z}")
     fig, ax = plt.subplots(figsize=(8, 4))
     df[[feature_x, feature_y, feature_z]].boxplot(ax=ax)
     st.pyplot(fig)
 
 elif mode == "PCA 2D":
-    st.subheader("🧭 PCA 2D — проекция всего набора признаков")
+    st.subheader("PCA 2D — проекция всего набора признаков")
     pca = PCA(n_components=2)
     pca_result = pca.fit_transform(df[feature_cols].fillna(0))
     fig, ax = plt.subplots(figsize=(7,6))
@@ -105,7 +106,7 @@ elif mode == "PCA 2D":
     st.pyplot(fig)
 
 elif mode == "PCA 3D":
-    st.subheader("🧭 PCA 3D — проекция всего набора признаков")
+    st.subheader("PCA 3D — проекция всего набора признаков")
     pca = PCA(n_components=3)
     pca_result = pca.fit_transform(df[feature_cols].fillna(0))
     fig = plt.figure(figsize=(7,6))
@@ -118,7 +119,7 @@ elif mode == "PCA 3D":
 # FEATURE IMPORTANCE + PDF
 # --------------------------
 elif mode == "Feature Importance + PDF Report":
-    st.subheader("🏆 Feature Importance (XGBoost)")
+    st.subheader("Feature Importance (XGBoost)")
 
     # train XGBoost to get importances (on full dataset)
     st.info("Обучение XGBoost для вычисления важности признаков (несколько секунд)...")
@@ -223,7 +224,7 @@ elif mode == "Feature Importance + PDF Report":
     pdf_bytes = generate_pdf_bytes(imp_df, png_importance, png_pca2, png_box)
 
     st.download_button(
-        "📄 Скачать PDF отчёт (таблица + графики)",
+        "Скачать PDF отчёт (таблица + графики)",
         data=pdf_bytes,
         file_name="feature_importance_report_full.pdf",
         mime="application/pdf"
